@@ -1,7 +1,9 @@
+
 import { useState } from "react";
 import "./IssueReport.css";
 
 const initialForm = {
+  title: "",
   name: "",
   email: "",
   location: "",
@@ -10,10 +12,29 @@ const initialForm = {
   description: "",
 };
 
+function getStoredUser() {
+  try {
+    return JSON.parse(localStorage.getItem("fixoraUser") || "null");
+  } catch {
+    return null;
+  }
+}
+
 function IssueReport() {
-  const [form, setForm] = useState(initialForm);
+  const [form, setForm] = useState(() => {
+    const user = getStoredUser();
+
+    return {
+      ...initialForm,
+      name: user?.name || "",
+      email: user?.email || "",
+    };
+  });
+
   const [photo, setPhoto] = useState(null);
   const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("error");
+  const [loading, setLoading] = useState(false);
 
   function handleChange(event) {
     const { name, value } = event.target;
@@ -26,23 +47,150 @@ function IssueReport() {
     setMessage("");
   }
 
-  function handleSubmit(event) {
+  function handlePhotoChange(event) {
+    const selectedFile = event.target.files?.[0] || null;
+    setMessage("");
+
+    if (!selectedFile) {
+      setPhoto(null);
+      return;
+    }
+
+    const allowedTypes = [
+      "image/png",
+      "image/jpeg",
+      "image/webp",
+    ];
+
+    if (!allowedTypes.includes(selectedFile.type)) {
+      event.target.value = "";
+      setPhoto(null);
+      setMessage("Please select a PNG, JPEG, or WebP image.");
+      setMessageType("error");
+      return;
+    }
+
+    if (selectedFile.size > 5 * 1024 * 1024) {
+      event.target.value = "";
+      setPhoto(null);
+      setMessage("Please select an image no larger than 5 MB.");
+      setMessageType("error");
+      return;
+    }
+
+    setPhoto(selectedFile);
+  }
+
+  async function handleSubmit(event) {
     event.preventDefault();
+    setMessage("");
 
-    setMessage(
-      "Form validated successfully. Backend submission will be added later."
-    );
+    const token = localStorage.getItem("fixoraToken");
 
-    console.log("Issue report preview:", {
-      ...form,
-      photoName: photo?.name || null,
-    });
+    if (!token) {
+      setMessage("Please log in before submitting a maintenance report.");
+      setMessageType("error");
+      return;
+    }
+
+    if (form.title.trim().length < 3) {
+      setMessage("Please enter an issue title of at least 3 characters.");
+      setMessageType("error");
+      return;
+    }
+
+    if (
+      !form.location.trim() ||
+      !form.category ||
+      !form.description.trim()
+    ) {
+      setMessage("Please complete all required issue details.");
+      setMessageType("error");
+      return;
+    }
+
+    if (!["Low", "Medium", "High", "Urgent"].includes(form.priority)) {
+      setMessage("Please select a valid priority.");
+      setMessageType("error");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const requestData = new FormData();
+
+      requestData.append("title", form.title.trim());
+      requestData.append("description", form.description.trim());
+      requestData.append("category", form.category);
+      requestData.append("location", form.location.trim());
+      requestData.append("priority", form.priority);
+
+      if (photo) {
+        requestData.append("photo", photo);
+      }
+
+      const response = await fetch("http://localhost:5000/api/issues", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: requestData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Unable to submit your maintenance report."
+        );
+      }
+
+      setMessage(
+        photo
+          ? "Report and photo submitted successfully!"
+          : data.message || "Your maintenance report was submitted successfully."
+      );
+
+      setMessageType("success");
+
+      setForm((previous) => ({
+        ...initialForm,
+        name: previous.name,
+        email: previous.email,
+      }));
+
+      setPhoto(null);
+
+      const fileInput = document.getElementById("photo");
+      if (fileInput) fileInput.value = "";
+    } catch (error) {
+      setMessage(
+        error.message === "Failed to fetch"
+          ? "Cannot connect to Fixora's backend. Please check that the server is running."
+          : error.message || "Something went wrong while submitting the report."
+      );
+
+      setMessageType("error");
+    } finally {
+      setLoading(false);
+    }
   }
 
   function handleReset() {
-    setForm(initialForm);
+    const user = getStoredUser();
+
+    setForm({
+      ...initialForm,
+      name: user?.name || "",
+      email: user?.email || "",
+    });
+
     setPhoto(null);
     setMessage("");
+
+    const fileInput = document.getElementById("photo");
+    if (fileInput) fileInput.value = "";
   }
 
   return (
@@ -64,29 +212,40 @@ function IssueReport() {
 
         <div className="issue-form-grid">
           <div className="issue-field">
-            <label htmlFor="name">Full Name *</label>
+            <label htmlFor="name">Full Name</label>
             <input
               id="name"
               name="name"
               type="text"
-              placeholder="Enter your full name"
               value={form.name}
-              onChange={handleChange}
-              autoComplete="name"
-              required
+              readOnly
+              placeholder="Log in to load your name"
             />
           </div>
 
           <div className="issue-field">
-            <label htmlFor="email">Email Address *</label>
+            <label htmlFor="email">Email Address</label>
             <input
               id="email"
               name="email"
               type="email"
-              placeholder="you@example.com"
               value={form.email}
+              readOnly
+              placeholder="Log in to load your email"
+            />
+          </div>
+
+          <div className="issue-field issue-full-width">
+            <label htmlFor="title">Issue Title *</label>
+            <input
+              id="title"
+              name="title"
+              type="text"
+              placeholder="e.g. Water leakage in bathroom"
+              value={form.title}
               onChange={handleChange}
-              autoComplete="email"
+              minLength={3}
+              maxLength={120}
               required
             />
           </div>
@@ -100,6 +259,7 @@ function IssueReport() {
               placeholder="e.g. Block A, Room 102"
               value={form.location}
               onChange={handleChange}
+              maxLength={150}
               required
             />
           </div>
@@ -125,12 +285,13 @@ function IssueReport() {
           </div>
 
           <div className="issue-field">
-            <label htmlFor="priority">Priority</label>
+            <label htmlFor="priority">Priority *</label>
             <select
               id="priority"
               name="priority"
               value={form.priority}
               onChange={handleChange}
+              required
             >
               <option value="Low">Low</option>
               <option value="Medium">Medium</option>
@@ -151,6 +312,7 @@ function IssueReport() {
               maxLength={1000}
               required
             />
+
             <span className="issue-character-count">
               {form.description.length}/1000 characters
             </span>
@@ -160,24 +322,14 @@ function IssueReport() {
             <label htmlFor="photo">Attach a Photo (Optional)</label>
             <input
               id="photo"
+              name="photo"
               type="file"
               accept="image/png,image/jpeg,image/webp"
-              onChange={(event) => {
-                const selectedFile = event.target.files?.[0] || null;
-
-                if (selectedFile && selectedFile.size > 5 * 1024 * 1024) {
-                  setPhoto(null);
-                  event.target.value = "";
-                  setMessage("Please select an image smaller than 5 MB.");
-                  return;
-                }
-
-                setPhoto(selectedFile);
-                setMessage("");
-              }}
+              onChange={handlePhotoChange}
             />
+
             <span className="issue-help">
-              Images only. Maximum file size: 5 MB.
+              PNG, JPEG, or WebP. Maximum size: 5 MB.
             </span>
 
             {photo && (
@@ -189,21 +341,29 @@ function IssueReport() {
         </div>
 
         {message && (
-          <p className="issue-feedback" role="status">
+          <p
+            className={`issue-feedback ${messageType}`}
+            role="status"
+            aria-live="polite"
+          >
             {message}
           </p>
         )}
 
         <div className="issue-actions">
-          <button className="issue-submit" type="submit">
-            Submit Report
+          <button
+            className="issue-submit"
+            type="submit"
+            disabled={loading}
+          >
+            {loading ? "Submitting..." : "Submit Report"}
           </button>
-          
 
           <button
             className="issue-reset"
             type="button"
             onClick={handleReset}
+            disabled={loading}
           >
             Clear Form
           </button>

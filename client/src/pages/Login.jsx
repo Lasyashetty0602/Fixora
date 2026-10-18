@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import "./Login.css";
@@ -7,8 +8,9 @@ function Login() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     setError("");
 
@@ -17,16 +19,59 @@ function Login() {
       return;
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       setError("Please enter a valid email address.");
       return;
     }
 
-    // Temporary frontend demo login only
-    localStorage.setItem("fixoraLoggedIn", "true");
+    try {
+      setLoading(true);
 
-    // Reload the landing page so the header updates
-    window.location.href = "/";
+      const response = await fetch(
+        "http://localhost:5000/api/auth/login",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email: email.trim(),
+            password,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || data.error || "Login failed. Please try again."
+        );
+      }
+
+      // Save login details only after successful backend verification.
+      if (data.token) {
+        localStorage.setItem("fixoraToken", data.token);
+      }
+
+      if (data.user) {
+        localStorage.setItem("fixoraUser", JSON.stringify(data.user));
+      }
+
+      // Keep compatibility with your existing Fixora header.
+      localStorage.setItem("fixoraLoggedIn", "true");
+
+      // Return to the landing page.
+      window.location.href = "/";
+    } catch (err) {
+      setError(
+        err.message === "Failed to fetch"
+          ? "Cannot connect to the server. Please check that your backend is running."
+          : err.message
+      );
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -76,6 +121,9 @@ function Login() {
                 type="button"
                 className="password-toggle"
                 onClick={() => setShowPassword(!showPassword)}
+                aria-label={
+                  showPassword ? "Hide password" : "Show password"
+                }
               >
                 {showPassword ? "Hide" : "Show"}
               </button>
@@ -88,8 +136,12 @@ function Login() {
             </p>
           )}
 
-          <button type="submit" className="login-submit">
-            Sign In
+          <button
+            type="submit"
+            className="login-submit"
+            disabled={loading}
+          >
+            {loading ? "Signing In..." : "Sign In"}
           </button>
         </form>
 

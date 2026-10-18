@@ -1,3 +1,4 @@
+
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import "./Register.css";
@@ -14,6 +15,7 @@ function Register() {
   const [showPassword, setShowPassword] = useState(false);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("error");
+  const [loading, setLoading] = useState(false);
 
   function handleChange(event) {
     const { name, value } = event.target;
@@ -24,7 +26,7 @@ function Register() {
     }));
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
     setMessage("");
 
@@ -34,7 +36,7 @@ function Register() {
       return;
     }
 
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) {
       setMessage("Please enter a valid email address.");
       setMessageType("error");
       return;
@@ -58,10 +60,70 @@ function Register() {
       return;
     }
 
-    setMessage(
-      "Your form is valid! Account registration will be connected to the backend next."
-    );
-    setMessageType("success");
+    try {
+      setLoading(true);
+
+      const response = await fetch(
+        "http://localhost:5000/api/auth/register",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            name: formData.name.trim(),
+            email: formData.email.trim(),
+            phone: formData.phone.trim(),
+            password: formData.password,
+          }),
+        }
+      );
+
+      const data = await response.json();
+
+      if (data.token) {
+  localStorage.setItem("fixoraToken", data.token);
+}
+
+if (data.user) {
+  localStorage.setItem("fixoraUser", JSON.stringify(data.user));
+}
+
+localStorage.setItem("fixoraLoggedIn", "true");
+
+      if (!response.ok) {
+        throw new Error(
+          data.message ||
+          data.error ||
+          "Registration failed. Please try again."
+        );
+      }
+
+
+
+      setMessage(
+        data.message || "Account created successfully! You can now sign in."
+      );
+      setMessageType("success");
+
+      setFormData({
+        name: "",
+        email: "",
+        phone: "",
+        password: "",
+        confirmPassword: "",
+      });
+
+    } catch (error) {
+      setMessage(
+        error.message === "Failed to fetch"
+          ? "Cannot connect to the server. Please check your backend."
+          : error.message
+      );
+      setMessageType("error");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -73,7 +135,9 @@ function Register() {
 
         <div className="register-heading">
           <h1>Create your account</h1>
-          <p>Join Fixora to organize and manage maintenance requests.</p>
+          <p>
+            Join Fixora to organize and manage maintenance requests.
+          </p>
         </div>
 
         <form onSubmit={handleSubmit} className="register-form">
@@ -113,7 +177,16 @@ function Register() {
               type="tel"
               placeholder="10-digit phone number"
               value={formData.phone}
-              onChange={handleChange}
+              onChange={(event) => {
+                const digits = event.target.value
+                  .replace(/\D/g, "")
+                  .slice(0, 10);
+
+                setFormData((previous) => ({
+                  ...previous,
+                  phone: digits,
+                }));
+              }}
               autoComplete="tel"
               maxLength={10}
               inputMode="numeric"
@@ -163,14 +236,18 @@ function Register() {
           {message && (
             <p
               className={`register-message ${messageType}`}
-              role="status"
+              role="alert"
             >
               {message}
             </p>
           )}
 
-          <button type="submit" className="register-submit">
-            Create Account
+          <button
+            type="submit"
+            className="register-submit"
+            disabled={loading}
+          >
+            {loading ? "Creating Account..." : "Create Account"}
           </button>
         </form>
 
